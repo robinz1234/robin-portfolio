@@ -246,7 +246,7 @@ export const projects: Project[] = [
     githubUrl: "https://github.com/robinz1234/hubfluence-digital",
     liveUrl: "https://www.hubfluencedigital.com/",
   },
-  {8
+  {
     id: "cardiovascular-prediction",
     title: "Cardiovascular Disease Prediction",
     category: "Machine Learning",
