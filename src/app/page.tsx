@@ -1,5 +1,3 @@
-import EffectsLayer from "@/components/background/EffectsLayer";
-
 import Footer from "@/components/layout/Footer";
 import Navbar from "@/components/layout/Navbar";
 
@@ -12,12 +10,10 @@ import Skills from "@/components/sections/Skills";
 
 export default function Home() {
   return (
-    <div className="relative min-h-screen overflow-x-clip">
-      <EffectsLayer />
-
+    <>
       <Navbar />
 
-      <main className="relative z-10">
+      <main className="relative">
         <Hero />
         <About />
         <Experience />
@@ -27,6 +23,6 @@ export default function Home() {
       </main>
 
       <Footer />
-    </div>
+    </>
   );
 }
