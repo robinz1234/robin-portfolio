@@ -1,5 +1,4 @@
-import AnimatedBackground from "@/components/background/AnimatedBackground";
-import CursorSparkles from "@/components/background/CursorSparkles";
+import EffectsLayer from "@/components/background/EffectsLayer";
 
 import Footer from "@/components/layout/Footer";
 import Navbar from "@/components/layout/Navbar";
@@ -14,8 +13,7 @@ import Skills from "@/components/sections/Skills";
 export default function Home() {
   return (
     <div className="relative min-h-screen overflow-x-clip">
-      <AnimatedBackground />
-      <CursorSparkles />
+      <EffectsLayer />
 
       <Navbar />
 

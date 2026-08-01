@@ -2,34 +2,13 @@
 
 import { useEffect, useRef } from "react";
 
-type Spark = {
-  x: number;
-  y: number;
-  velocityX: number;
-  velocityY: number;
-  radius: number;
-  opacity: number;
-  decay: number;
-  hue: number;
-};
-
-const hues = [190, 260, 280, 310];
-
 export default function CursorSparkles() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const starRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
+    const star = starRef.current;
 
-    if (!canvas) {
-      return;
-    }
-
-    const context = canvas.getContext("2d", {
-      alpha: true,
-    });
-
-    if (!context) {
+    if (!star) {
       return;
     }
 
@@ -41,51 +20,19 @@ export default function CursorSparkles() {
       return;
     }
 
-    let width = window.innerWidth;
-    let height = window.innerHeight;
-    let animationFrameId = 0;
-    let sparks: Spark[] = [];
+    let frameId: number | null = null;
+    let pointerX = -100;
+    let pointerY = -100;
 
-    let previousX = 0;
-    let previousY = 0;
-    let lastCreationTime = 0;
+    const updatePosition = () => {
+      star.style.transform = `translate3d(
+        ${pointerX - 9}px,
+        ${pointerY - 9}px,
+        0
+      )`;
 
-    const resizeCanvas = () => {
-      width = window.innerWidth;
-      height = window.innerHeight;
-
-      const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
-
-      canvas.width = width * pixelRatio;
-      canvas.height = height * pixelRatio;
-
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
-
-      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    };
-
-    const createSpark = (x: number, y: number, stronger = false): Spark => {
-      return {
-        x: x + (Math.random() - 0.5) * 5,
-        y: y + (Math.random() - 0.5) * 5,
-        velocityX: (Math.random() - 0.5) * (stronger ? 1.4 : 0.65),
-        velocityY: (Math.random() - 0.5) * (stronger ? 1.4 : 0.65) - 0.15,
-        radius: stronger ? Math.random() * 2 + 1.5 : Math.random() * 1.5 + 0.8,
-        opacity: 0.9,
-        decay: stronger ? 0.035 : 0.05,
-        hue: hues[Math.floor(Math.random() * hues.length)],
-      };
-    };
-
-    const addCursorSparks = (x: number, y: number, amount: number, stronger = false) => {
-      for (let index = 0; index < amount; index += 1) {
-        sparks.push(createSpark(x, y, stronger));
-      }
-
-      if (sparks.length > 45) {
-        sparks = sparks.slice(sparks.length - 45);
-      }
+      star.dataset.visible = "true";
+      frameId = null;
     };
 
     const handlePointerMove = (event: PointerEvent) => {
@@ -93,21 +40,16 @@ export default function CursorSparkles() {
         return;
       }
 
-      const now = performance.now();
+      pointerX = event.clientX;
+      pointerY = event.clientY;
 
-      if (now - lastCreationTime < 32) {
-        return;
+      if (frameId === null) {
+        frameId = window.requestAnimationFrame(updatePosition);
       }
+    };
 
-      const distance = Math.hypot(event.clientX - previousX, event.clientY - previousY);
-
-      if (distance > 6) {
-        addCursorSparks(event.clientX, event.clientY, 1);
-      }
-
-      previousX = event.clientX;
-      previousY = event.clientY;
-      lastCreationTime = now;
+    const hideStar = () => {
+      star.dataset.visible = "false";
     };
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -115,45 +57,15 @@ export default function CursorSparkles() {
         return;
       }
 
-      addCursorSparks(event.clientX, event.clientY, 6, true);
+      star.classList.remove("cursor-star-burst");
+
+      /*
+       * Reading offsetWidth restarts the short click animation.
+       */
+      void star.offsetWidth;
+
+      star.classList.add("cursor-star-burst");
     };
-
-    const render = () => {
-      context.clearRect(0, 0, width, height);
-
-      for (const spark of sparks) {
-        spark.x += spark.velocityX;
-        spark.y += spark.velocityY;
-
-        spark.velocityX *= 0.97;
-        spark.velocityY *= 0.97;
-
-        spark.opacity -= spark.decay;
-        spark.radius *= 0.985;
-
-        context.beginPath();
-
-        context.arc(spark.x, spark.y, Math.max(spark.radius, 0.2), 0, Math.PI * 2);
-
-        context.fillStyle = `hsla(
-          ${spark.hue},
-          95%,
-          72%,
-          ${Math.max(spark.opacity, 0)}
-        )`;
-
-        context.fill();
-      }
-
-      sparks = sparks.filter((spark) => spark.opacity > 0 && spark.radius > 0.2);
-
-      animationFrameId = window.requestAnimationFrame(render);
-    };
-
-    resizeCanvas();
-    render();
-
-    window.addEventListener("resize", resizeCanvas);
 
     window.addEventListener("pointermove", handlePointerMove, {
       passive: true,
@@ -163,16 +75,28 @@ export default function CursorSparkles() {
       passive: true,
     });
 
-    return () => {
-      window.cancelAnimationFrame(animationFrameId);
+    window.addEventListener("blur", hideStar);
 
-      window.removeEventListener("resize", resizeCanvas);
+    document.documentElement.addEventListener("mouseleave", hideStar);
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
 
       window.removeEventListener("pointermove", handlePointerMove);
 
       window.removeEventListener("pointerdown", handlePointerDown);
+
+      window.removeEventListener("blur", hideStar);
+
+      document.documentElement.removeEventListener("mouseleave", hideStar);
     };
   }, []);
 
-  return <canvas ref={canvasRef} className="cursor-sparkle-canvas" aria-hidden="true" />;
+  return (
+    <div ref={starRef} className="cursor-star" data-visible="false" aria-hidden="true">
+      <span className="cursor-star-core" />
+    </div>
+  );
 }

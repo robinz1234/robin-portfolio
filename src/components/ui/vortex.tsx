@@ -1,7 +1,5 @@
 "use client";
 
-import { cn } from "@/lib/utils";
-import { motion } from "motion/react";
 import { createNoise3D } from "simplex-noise";
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
@@ -18,291 +16,280 @@ type VortexProps = {
   baseRadius?: number;
   rangeRadius?: number;
   backgroundColor?: string;
+  frameRate?: number;
 };
+
+const PARTICLE_FIELDS = 9;
 
 export function Vortex({
   children,
-  className,
-  containerClassName,
-  particleCount = 700,
-  rangeY = 100,
-  baseHue = 220,
-  baseSpeed = 0,
-  rangeSpeed = 1.5,
-  baseRadius = 1,
-  rangeRadius = 2,
+  className = "",
+  containerClassName = "",
+  particleCount = 56,
+  rangeY = 360,
+  baseHue = 255,
+  baseSpeed = 0.02,
+  rangeSpeed = 0.24,
+  baseRadius = 0.4,
+  rangeRadius = 0.9,
   backgroundColor = "#000000",
+  frameRate = 30,
 }: VortexProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  /*
-   * The animation frame starts as null.
-   * This fixes the TypeScript build error.
-   */
-  const animationFrameId = useRef<number | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const resizeFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    const container = containerRef.current;
 
-    if (!canvas || !container) {
+    if (!canvas) {
       return;
     }
 
-    const context = canvas.getContext("2d");
+    const context = canvas.getContext("2d", {
+      alpha: false,
+    });
 
     if (!context) {
       return;
     }
 
-    const particlePropertyCount = 9;
-    const particlePropertiesLength = particleCount * particlePropertyCount;
-
-    const baseTimeToLive = 50;
-    const rangeTimeToLive = 150;
-    const rangeHue = 100;
-
-    const noiseSteps = 3;
-    const xOffset = 0.00125;
-    const yOffset = 0.00125;
-    const zOffset = 0.0005;
-
-    const twoPi = Math.PI * 2;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     const noise3D = createNoise3D();
 
+    let width = Math.max(window.innerWidth, 1);
+    let height = Math.max(window.innerHeight, 1);
+    let effectiveParticleCount = particleCount;
+    let particleProperties = new Float32Array(0);
+
     let tick = 0;
-    let logicalWidth = 0;
-    let logicalHeight = 0;
+    let lastFrameTime = 0;
+    let isPageVisible = !document.hidden;
+    let isRunning = true;
 
-    let center: [number, number] = [0, 0];
+    const frameInterval = 1000 / Math.max(frameRate, 1);
+    const twoPi = Math.PI * 2;
 
-    let particleProperties = new Float32Array(particlePropertiesLength);
+    const getEffectiveParticleCount = () => {
+      if (reducedMotion) {
+        return Math.min(14, particleCount);
+      }
 
-    const random = (number: number) => {
-      return number * Math.random();
+      if (width < 640) {
+        return Math.min(20, particleCount);
+      }
+
+      if (width < 1024) {
+        return Math.min(34, particleCount);
+      }
+
+      return particleCount;
     };
 
-    const randomRange = (number: number) => {
-      return number - random(number * 2);
-    };
+    const initialiseParticle = (startingIndex: number, randomiseLife = false) => {
+      const timeToLive = 90 + Math.random() * 110;
 
-    const interpolate = (firstNumber: number, secondNumber: number, speed: number) => {
-      return (1 - speed) * firstNumber + speed * secondNumber;
-    };
+      particleProperties[startingIndex] = Math.random() * width;
+      particleProperties[startingIndex + 1] = height * 0.5 + (Math.random() - 0.5) * rangeY * 2;
 
-    const fadeInOut = (time: number, maximumTime: number) => {
-      const halfMaximum = maximumTime * 0.5;
+      particleProperties[startingIndex + 2] = 0;
+      particleProperties[startingIndex + 3] = 0;
 
-      return Math.abs(((time + halfMaximum) % maximumTime) - halfMaximum) / halfMaximum;
-    };
+      particleProperties[startingIndex + 4] = randomiseLife ? Math.random() * timeToLive : 0;
 
-    const initialiseParticle = (index: number) => {
-      const x = random(logicalWidth);
-      const y = center[1] + randomRange(rangeY);
+      particleProperties[startingIndex + 5] = timeToLive;
+      particleProperties[startingIndex + 6] = baseSpeed + Math.random() * rangeSpeed;
 
-      const velocityX = 0;
-      const velocityY = 0;
-      const life = 0;
+      particleProperties[startingIndex + 7] = baseRadius + Math.random() * rangeRadius;
 
-      const timeToLive = baseTimeToLive + random(rangeTimeToLive);
-
-      const speed = baseSpeed + random(rangeSpeed);
-
-      const radius = baseRadius + random(rangeRadius);
-
-      const hue = baseHue + random(rangeHue);
-
-      particleProperties.set(
-        [x, y, velocityX, velocityY, life, timeToLive, speed, radius, hue],
-        index,
-      );
+      particleProperties[startingIndex + 8] = baseHue + Math.random() * 90;
     };
 
     const initialiseParticles = () => {
-      tick = 0;
+      effectiveParticleCount = getEffectiveParticleCount();
 
-      particleProperties = new Float32Array(particlePropertiesLength);
+      particleProperties = new Float32Array(effectiveParticleCount * PARTICLE_FIELDS);
 
-      for (let index = 0; index < particlePropertiesLength; index += particlePropertyCount) {
-        initialiseParticle(index);
+      for (let index = 0; index < particleProperties.length; index += PARTICLE_FIELDS) {
+        initialiseParticle(index, true);
       }
-    };
-
-    const particleIsOutsideCanvas = (x: number, y: number) => {
-      return x > logicalWidth || x < 0 || y > logicalHeight || y < 0;
-    };
-
-    const drawParticle = (
-      x: number,
-      y: number,
-      nextX: number,
-      nextY: number,
-      life: number,
-      timeToLive: number,
-      radius: number,
-      hue: number,
-    ) => {
-      context.save();
-
-      context.lineCap = "round";
-      context.lineWidth = radius;
-
-      const opacity = fadeInOut(life, timeToLive);
-
-      context.strokeStyle = `hsla(${hue}, 100%, 60%, ${opacity})`;
-
-      /*
-       * A small glow keeps the Vortex visible without
-       * using the expensive repeated canvas blur effect.
-       */
-      context.shadowColor = `hsla(${hue}, 100%, 60%, ${opacity})`;
-      context.shadowBlur = 6;
-
-      context.beginPath();
-      context.moveTo(x, y);
-      context.lineTo(nextX, nextY);
-      context.stroke();
-      context.closePath();
-
-      context.restore();
-    };
-
-    const updateParticle = (index: number) => {
-      const yIndex = index + 1;
-      const velocityXIndex = index + 2;
-      const velocityYIndex = index + 3;
-      const lifeIndex = index + 4;
-      const timeToLiveIndex = index + 5;
-      const speedIndex = index + 6;
-      const radiusIndex = index + 7;
-      const hueIndex = index + 8;
-
-      const x = particleProperties[index];
-      const y = particleProperties[yIndex];
-
-      const noise = noise3D(x * xOffset, y * yOffset, tick * zOffset) * noiseSteps * twoPi;
-
-      const velocityX = interpolate(particleProperties[velocityXIndex], Math.cos(noise), 0.5);
-
-      const velocityY = interpolate(particleProperties[velocityYIndex], Math.sin(noise), 0.5);
-
-      let life = particleProperties[lifeIndex];
-
-      const timeToLive = particleProperties[timeToLiveIndex];
-
-      const speed = particleProperties[speedIndex];
-
-      const radius = particleProperties[radiusIndex];
-
-      const hue = particleProperties[hueIndex];
-
-      const nextX = x + velocityX * speed;
-      const nextY = y + velocityY * speed;
-
-      drawParticle(x, y, nextX, nextY, life, timeToLive, radius, hue);
-
-      life += 1;
-
-      particleProperties[index] = nextX;
-      particleProperties[yIndex] = nextY;
-
-      particleProperties[velocityXIndex] = velocityX;
-
-      particleProperties[velocityYIndex] = velocityY;
-
-      particleProperties[lifeIndex] = life;
-
-      if (particleIsOutsideCanvas(nextX, nextY) || life > timeToLive) {
-        initialiseParticle(index);
-      }
-    };
-
-    const drawParticles = () => {
-      context.save();
-
-      context.globalCompositeOperation = "lighter";
-
-      for (let index = 0; index < particlePropertiesLength; index += particlePropertyCount) {
-        updateParticle(index);
-      }
-
-      context.restore();
-    };
-
-    const drawFrame = () => {
-      tick += 1;
-
-      context.clearRect(0, 0, logicalWidth, logicalHeight);
-
-      context.fillStyle = backgroundColor;
-
-      context.fillRect(0, 0, logicalWidth, logicalHeight);
-
-      drawParticles();
-
-      animationFrameId.current = window.requestAnimationFrame(drawFrame);
     };
 
     const resizeCanvas = () => {
-      const containerRectangle = container.getBoundingClientRect();
-
-      logicalWidth = Math.max(containerRectangle.width, window.innerWidth, 1);
-
-      logicalHeight = Math.max(containerRectangle.height, window.innerHeight, 1);
+      width = Math.max(window.innerWidth, 1);
+      height = Math.max(window.innerHeight, 1);
 
       /*
-       * Limiting the pixel ratio reduces lag on
-       * high-resolution screens.
+       * Rendering at device pixel ratio 1 drastically reduces the number
+       * of pixels redrawn while remaining sharp enough for background motion.
        */
-      const pixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+      canvas.width = Math.floor(width);
+      canvas.height = Math.floor(height);
 
-      canvas.width = logicalWidth * pixelRatio;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
 
-      canvas.height = logicalHeight * pixelRatio;
+      context.setTransform(1, 0, 0, 1, 0, 0);
 
-      canvas.style.width = `${logicalWidth}px`;
-
-      canvas.style.height = `${logicalHeight}px`;
-
-      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-
-      center = [logicalWidth * 0.5, logicalHeight * 0.5];
+      context.globalCompositeOperation = "source-over";
+      context.fillStyle = backgroundColor;
+      context.fillRect(0, 0, width, height);
 
       initialiseParticles();
     };
 
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        if (animationFrameId.current !== null) {
-          window.cancelAnimationFrame(animationFrameId.current);
+    const drawStaticBackground = () => {
+      context.globalCompositeOperation = "source-over";
+      context.fillStyle = backgroundColor;
+      context.fillRect(0, 0, width, height);
 
-          animationFrameId.current = null;
+      context.globalCompositeOperation = "lighter";
+
+      for (let index = 0; index < particleProperties.length; index += PARTICLE_FIELDS) {
+        const x = particleProperties[index];
+        const y = particleProperties[index + 1];
+        const hue = particleProperties[index + 8];
+
+        context.beginPath();
+        context.fillStyle = `hsla(${hue}, 90%, 65%, 0.38)`;
+        context.arc(x, y, 1.2, 0, twoPi);
+        context.fill();
+      }
+
+      context.globalCompositeOperation = "source-over";
+    };
+
+    const updateAndDrawParticles = () => {
+      context.globalCompositeOperation = "source-over";
+
+      /*
+       * A translucent black fill leaves short trails without clearing and
+       * repainting the canvas several times.
+       */
+      context.fillStyle = "rgba(0, 0, 0, 0.26)";
+      context.fillRect(0, 0, width, height);
+
+      context.globalCompositeOperation = "lighter";
+      context.lineCap = "round";
+
+      for (let index = 0; index < particleProperties.length; index += PARTICLE_FIELDS) {
+        const x = particleProperties[index];
+        const y = particleProperties[index + 1];
+
+        let velocityX = particleProperties[index + 2];
+        let velocityY = particleProperties[index + 3];
+        let life = particleProperties[index + 4];
+
+        const timeToLive = particleProperties[index + 5];
+        const speed = particleProperties[index + 6];
+        const radius = particleProperties[index + 7];
+        const hue = particleProperties[index + 8];
+
+        const noiseAngle = noise3D(x * 0.0013, y * 0.0013, tick * 0.00065) * 2.8 * twoPi;
+
+        velocityX = velocityX * 0.72 + Math.cos(noiseAngle) * 0.28;
+
+        velocityY = velocityY * 0.72 + Math.sin(noiseAngle) * 0.28;
+
+        const nextX = x + velocityX * speed;
+        const nextY = y + velocityY * speed;
+
+        const lifeProgress = Math.min(life / timeToLive, 1);
+        const opacity = Math.sin(Math.PI * lifeProgress) * 0.72;
+
+        context.beginPath();
+        context.lineWidth = radius;
+        context.strokeStyle = `hsla(${hue}, 95%, 66%, ${opacity})`;
+        context.moveTo(x, y);
+        context.lineTo(nextX, nextY);
+        context.stroke();
+
+        particleProperties[index] = nextX;
+        particleProperties[index + 1] = nextY;
+        particleProperties[index + 2] = velocityX;
+        particleProperties[index + 3] = velocityY;
+        particleProperties[index + 4] = life + 1;
+
+        const outsideCanvas =
+          nextX < -20 || nextX > width + 20 || nextY < -20 || nextY > height + 20;
+
+        if (outsideCanvas || life >= timeToLive) {
+          initialiseParticle(index);
         }
+      }
 
+      context.globalCompositeOperation = "source-over";
+    };
+
+    const animate = (time: number) => {
+      if (!isRunning) {
         return;
       }
 
-      if (animationFrameId.current === null) {
-        animationFrameId.current = window.requestAnimationFrame(drawFrame);
+      animationFrameRef.current = window.requestAnimationFrame(animate);
+
+      if (!isPageVisible) {
+        return;
       }
+
+      if (time - lastFrameTime < frameInterval) {
+        return;
+      }
+
+      lastFrameTime = time;
+      tick += 1;
+
+      updateAndDrawParticles();
+    };
+
+    const handleResize = () => {
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+      }
+
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeCanvas();
+
+        if (reducedMotion) {
+          drawStaticBackground();
+        }
+
+        resizeFrameRef.current = null;
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      isPageVisible = !document.hidden;
+      lastFrameTime = performance.now();
     };
 
     resizeCanvas();
 
-    animationFrameId.current = window.requestAnimationFrame(drawFrame);
+    if (reducedMotion) {
+      drawStaticBackground();
+    } else {
+      animationFrameRef.current = window.requestAnimationFrame(animate);
+    }
 
-    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("resize", handleResize, {
+      passive: true,
+    });
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      if (animationFrameId.current !== null) {
-        window.cancelAnimationFrame(animationFrameId.current);
+      isRunning = false;
+
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
       }
 
-      window.removeEventListener("resize", resizeCanvas);
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+      }
+
+      window.removeEventListener("resize", handleResize);
 
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
@@ -311,6 +298,7 @@ export function Vortex({
     baseHue,
     baseRadius,
     baseSpeed,
+    frameRate,
     particleCount,
     rangeRadius,
     rangeSpeed,
@@ -318,20 +306,14 @@ export function Vortex({
   ]);
 
   return (
-    <div className={cn("relative h-full w-full overflow-hidden", containerClassName)}>
-      <motion.div
-        ref={containerRef}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{
-          duration: 0.8,
-        }}
-        className="absolute inset-0 z-0 h-full w-full"
-      >
-        <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
-      </motion.div>
+    <div className={`relative h-full w-full overflow-hidden ${containerClassName}`}>
+      <canvas
+        ref={canvasRef}
+        className="vortex-canvas absolute inset-0 h-full w-full"
+        aria-hidden="true"
+      />
 
-      <div className={cn("relative z-10", className)}>{children}</div>
+      <div className={`relative z-10 ${className}`}>{children}</div>
     </div>
   );
 }
